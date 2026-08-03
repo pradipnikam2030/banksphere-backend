@@ -5,6 +5,8 @@ import com.pradip.banksphere.entity.role.Role;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "users")
 @NoArgsConstructor
@@ -27,5 +29,6 @@ public class User extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "role_id", nullable = false)
     private Role role;
+    private LocalDateTime lastLogin;
 
 }
