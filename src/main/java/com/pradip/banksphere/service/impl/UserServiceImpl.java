@@ -3,19 +3,26 @@ package com.pradip.banksphere.service.impl;
 import com.pradip.banksphere.dto.request.LoginRequest;
 import com.pradip.banksphere.dto.request.RegisterRequest;
 import com.pradip.banksphere.dto.response.LoginResponse;
+import com.pradip.banksphere.dto.response.LoginResult;
+import com.pradip.banksphere.dto.response.RefreshResult;
 import com.pradip.banksphere.dto.response.RegisterResponse;
+import com.pradip.banksphere.entity.refresh.RefreshToken;
 import com.pradip.banksphere.entity.role.Role;
 import com.pradip.banksphere.entity.user.User;
 import com.pradip.banksphere.enums.RoleType;
-import com.pradip.banksphere.exception.AccountIsNotEnabledException;
 import com.pradip.banksphere.exception.EmailAlreadyExistsException;
-import com.pradip.banksphere.exception.InvalidCredentialsException;
 import com.pradip.banksphere.exception.RoleNotFoundException;
 import com.pradip.banksphere.repository.role.RoleRepository;
 import com.pradip.banksphere.repository.user.UserRepository;
+import com.pradip.banksphere.security.CustomUserDetails;
+import com.pradip.banksphere.service.jwt.JwtService;
+import com.pradip.banksphere.service.refresh.RefreshTokenService;
 import com.pradip.banksphere.service.user.UserService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +35,9 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
 
     @Override
@@ -51,50 +61,65 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public LoginResponse login(LoginRequest loginRequest) {
-        User user = findUserOrThrow(loginRequest.getEmail());
+    public LoginResult login(LoginRequest loginRequest) {
 
-        validatePassword(loginRequest.getPassword(), user.getPassword());
 
-        validateAccount(user);
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword())
+        );
 
-        updateLastLogin(user);
 
-        return buildLoginResponse(user);
+
+        CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
+
+        User user = userDetails.getUser();
+        user.setLastLogin(LocalDateTime.now());
+        String accessToken = jwtService.generateToken(String.valueOf(user.getUserId()), authentication.getAuthorities());
+        String refreshToken = refreshTokenService.createRefreshToken(user);
+        LoginResponse loginResponse =  buildLoginResponse(user, accessToken);
+        return LoginResult.builder()
+                .loginResponse(loginResponse)
+                .refreshToken(refreshToken)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public RefreshResult refreshAccessToken(String rawRefreshToken) {
+        RefreshToken oldRefreshToken = refreshTokenService.validateRefreshToken(rawRefreshToken);
+        User user = oldRefreshToken.getUser();
+        CustomUserDetails customUserDetails = new CustomUserDetails(user);
+        String accessToken = jwtService.generateToken(String.valueOf(user.getUserId()),
+                customUserDetails.getAuthorities());
+
+        refreshTokenService.revokeRefreshToken(oldRefreshToken);
+        String newRefreshToken = refreshTokenService.createRefreshToken(user);
+
+        return RefreshResult.builder()
+                .accessToken(accessToken)
+                .refreshToken(newRefreshToken)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void logOut(String rawRefreshToken) {
+
+        RefreshToken refreshToken = refreshTokenService.findByRawToken(rawRefreshToken);
+
+        refreshTokenService.revokeRefreshToken(refreshToken);
 
     }
 
-    private void validatePassword(String rawPassword, String userPassword) {
-        if (!passwordEncoder.matches(rawPassword, userPassword)) {
-            throw new InvalidCredentialsException("Invalid Email or Password");
-        }
-    }
-
-    private User findUserOrThrow(String email) {
-       return userRepository.findByEmail(email).orElseThrow(() ->
-                new InvalidCredentialsException("Invalid Email or Password"));
-
-    }
-
-    private LoginResponse buildLoginResponse(User user) {
+    private static LoginResponse buildLoginResponse(User user, String token) {
         return LoginResponse.builder()
                 .userId(user.getUserId())
                 .username(user.getUsername())
                 .email(user.getEmail())
-                .message("Successfully Login")
+                .token(token)
+                .message("Login Successful")
                 .build();
     }
-
-    private void updateLastLogin(User user) {
-        user.setLastLogin(LocalDateTime.now());
-    }
-
-    private void validateAccount(User user) {
-        if (!user.getEnabled()) {
-            throw new AccountIsNotEnabledException("Account is not Enabled");
-        }
-    }
-
 
 
     private static RegisterResponse buildResponse(User savedUser) {

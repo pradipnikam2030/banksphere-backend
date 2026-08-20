@@ -36,22 +36,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ApiError> handleInvalidUserException(InvalidCredentialsException ex){
-        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.builder()
                         .timestamp(LocalDateTime.now())
-                        .status(HttpStatus.NOT_ACCEPTABLE.value())
-                        .error("Not Accepted")
-                        .message(ex.getMessage())
-                        .build());
-    }
-
-    @ExceptionHandler(AccountIsNotEnabledException.class)
-    public ResponseEntity<ApiError> handleAccountIsNotEnabledException(AccountIsNotEnabledException ex){
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiError.builder()
-                        .timestamp(LocalDateTime.now())
-                        .status(HttpStatus.FORBIDDEN.value())
-                        .error("FORBIDDEN")
+                        .status(HttpStatus.UNAUTHORIZED.value())
+                        .error("Invalid Credentials")
                         .message(ex.getMessage())
                         .build());
     }
